@@ -33,9 +33,11 @@ class CPIData(object):
 
         """
 
+        # python requests use gzip-compression by default, disable gzip with "Accept-Encoding"
         fp = requests.get(url, stream=True,
                           headers={'Accept-Encoding': None}).raw
 
+        # return the raw data if there is no save file
         if save_as_file is None:
             return self.load_from_file(fp)
         else:
@@ -54,11 +56,13 @@ class CPIData(object):
         current_year = None
         year_cpi = []
         for line in fp:
-            while not line.startswith("DATE "):
+            while not line.startswith("DATE "):  # the file content starts after the header line beginning with "DATE "
                 pass
 
+            # strip all the newline characters
             data = line.rstrip().split()
 
+            # extract the year using string splitting
             year = int(data[0].split("-")[0])
             cpi = float(data[1])
 
@@ -66,6 +70,7 @@ class CPIData(object):
                 self.first_year = year
             self.last_year = year
 
+            # once a new year is reached, reset the CPI data and calculate the average CPI of the current_year
             if current_year != year:
                 if current_year is not None:
                     self.year_cpi[current_year] = sum(year_cpi) / len(year_cpi)
@@ -73,6 +78,7 @@ class CPIData(object):
                 current_year = year
             year_cpi.append(cpi)
 
+        # calculate the average CPI for the last year in the dataset
         if current_year is not None and current_year not in self.year_cpi:
             self.year_cpi[current_year] = sum(year_cpi) / len(year_cpi)
 
@@ -84,6 +90,7 @@ class CPIData(object):
         if current_year is None or current_year > 2013:
             current_year = 2013
 
+        # used edge data if the data range doesn't have a CPI for the given year
         if year < self.first_year:
             year = self.first_year
         elif year > self.last_year:
@@ -129,6 +136,9 @@ def generate_csv(platforms, output_file):
          dataset.append([p['abbreviation'], p['name'], p['year'],
                         p['original_price'], p['adjusted_price']])
 
+    # if the output_file is a string it represents a path to a file which
+    # will need to be opened first, else it is assumed it is a file-like
+    # object and the data is written into it
     if isinstance(output_file, basestring):
         with open(output_file, 'w+') as fp:
             fp.write(dataset.csv)
@@ -142,6 +152,8 @@ def generate_plot(platforms, output_file):
 
     """
 
+    # convert the platforms to 2-axis bar chart. "labels" will be x-axis, "values"
+    # will be the y-axis
     labels = []
     values = []
     for platform in platforms:
@@ -149,22 +161,28 @@ def generate_plot(platforms, output_file):
         adapted_price = platform['adjusted_price']
         price = platform['original_price']
 
+        # skip prices that are too high
         if price > 2000:
             continue
 
+        # replace long platform names with abbreviation
         if len(name) > 15:
             name = platform['abbreviation']
         labels.insert(0, u"{0}\n$ {1}\n$ {2}".format(name, price,
                                                      round(adapted_price, 2)))
         values.insert(0, adapted_price)
 
+    # define width of the bars and size of the resulting graph
     width = 0.3
     ind = np.arrange(len(values))
     fig = plt.figure(figsize=(len(labels) * 1.8, 10))
 
+    # generate a subplot with the relevant values
     ax = fig.add_subplot(1, 1, 1)
     ax.bar(ind, values, width, align='center')
 
+    # format the X and Y axis labels and set the ticks on the x-axis slightly
+    # further apart to give a tilting effect.
     plt.ylabel('Adjusted price')
     plt.xlabel('Year / Console')
     ax.set_xticks(ind + 0.3)
@@ -193,6 +211,7 @@ class GiantbombAPI(object):
 
         """
 
+        # convert criteria into API format
         params = {}
         if sort is not None:
             params['sort'] = sort
@@ -205,6 +224,7 @@ class GiantbombAPI(object):
                 parsed_filters.append('{0}:{1}'.format(key, value))
             params['filters'] = ','.join(parsed_filters)
 
+        # append unique API key and specify the file format
         params['api_key'] = self.api_key
         params['format'] = 'json'
 
@@ -213,6 +233,8 @@ class GiantbombAPI(object):
         num_fetched_results = 0
         counter = 0
 
+        # Giantbomb API can only return 100 items, therefore need to make multiple requests. "Offset" is used
+        # to skip previously returned items
         while incomplete_result:
             params['offset'] = num_fetched_results
             result = requests.get(self.base_url + '/platforms/',
