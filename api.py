@@ -1,6 +1,10 @@
 from __future__ import print_function
 
-import requests, logging
+import matplotlib.pyplot as plt
+import numpy as np
+import requests
+import logging
+import tablib
 
 CPI_DATA_URL = 'http://research.stlouisfed.org/fred2/data/CPIAUCSL.txt'
 
@@ -96,7 +100,7 @@ def is_valid_dataset(platform):
     require the name and abbreviation of the platform.
 
     """
-    
+
     if 'release_date' not in platform or not platform['release_date']:
         logging.warn(u"{0} has no release date".format(platform['name']))
         return False
@@ -110,6 +114,65 @@ def is_valid_dataset(platform):
         logging.warn(u"{0} has no abbreviation".format(platform['name']))
         return False
     return True
+
+def generate_csv(platforms, output_file):
+    """Writes the given platforms into a CSV file specified by the output_file
+    parameter.
+
+    The output_file can either be the path to a file or a file-like object.
+
+    """
+
+    dataset = tablib.Dataset(headers=['Abbreviation', 'Name', 'Year', 'Price',
+                                      'Adjusted price'])
+    for p in platforms:
+         dataset.append([p['abbreviation'], p['name'], p['year'],
+                        p['original_price'], p['adjusted_price']])
+
+    if isinstance(output_file, basestring):
+        with open(output_file, 'w+') as fp:
+            fp.write(dataset.csv)
+    else:
+        output_file.write(dataset.csv)
+
+
+def generate_plot(platforms, output_file):
+    """Generates a bar chart out of the given platforms and writes the output
+    into the specified file as PNG image.
+
+    """
+
+    labels = []
+    values = []
+    for platform in platforms:
+        name = platform['name']
+        adapted_price = platform['adjusted_price']
+        price = platform['original_price']
+
+        if price > 2000:
+            continue
+
+        if len(name) > 15:
+            name = platform['abbreviation']
+        labels.insert(0, u"{0}\n$ {1}\n$ {2}".format(name, price,
+                                                     round(adapted_price, 2)))
+        values.insert(0, adapted_price)
+
+    width = 0.3
+    ind = np.arrange(len(values))
+    fig = plt.figure(figsize=(len(labels) * 1.8, 10))
+
+    ax = fig.add_subplot(1, 1, 1)
+    ax.bar(ind, values, width, align='center')
+
+    plt.ylabel('Adjusted price')
+    plt.xlabel('Year / Console')
+    ax.set_xticks(ind + 0.3)
+    ax.set_xtickslabels(labels)
+    fig.autofmt_xdate()
+    plt.grid(True)
+
+    plt.savefig(output_file, dpi=72)
 
 
 class GiantbombAPI(object):
