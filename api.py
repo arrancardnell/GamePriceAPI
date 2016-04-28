@@ -1,5 +1,6 @@
 from __future__ import print_function
 
+import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 import requests
@@ -100,6 +101,33 @@ class CPIData(object):
         current_cpi = self.year_cpi[current_year]
 
         return float(price) / year_cpi * current_cpi
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--giantbomb-api-key', required=True,
+                        help='API key provided by Giantbomb.com')
+    parser.add_argument('--cpi-file',
+                        default=os.path.join(os.path.dirname(__file__),
+                                             'CPIAUCSSL.txt'),
+                        help='Path to file containing the CPI data (also acts'
+                             ' as target file if the data has to be downloaded'
+                             'first).')
+    parser.add_argument('--cpi-data-url', default=CPI_DATA_URL,
+                        help='URL which should be used as CPI data source')
+    parser.add_argument('--debug', default=False, action='store_true',
+                        help='Increases the output level.')
+    parser.add_argument('--csv-file',
+                        help='Path to CSV file which should contain the data'
+                             'output')
+    parser.add_argument('--plot-file',
+                        help='Path to the PNG file which should contain the'
+                             'data output')
+    parser.add_argument('--limit', type=int,
+                        help='Number of recent platforms to be considered')
+    opts = parser.parse_args()
+    if not (opts.plots_file or opts.csv_file):
+        parser.error("You have to specify either a --csv-file or --plot-file!")
+    return opts
 
 def is_valid_dataset(platform):
     """Filters out datasets that can't be used since they are either lacking
@@ -260,16 +288,53 @@ class GiantbombAPI(object):
 def main():
     """This function handles the actual logic of this script."""
 
-    # Grab CPI/Information data.
+    opts = parse_args()
 
-    # Grab API/game platform data.
+    if opts.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
-    # Figure out the current price of each platform.
-    # This will require looping through each game platform we received, and
-    # calculate the adjusted price based on the CPI data we also received.
-    # During this point, we should also validate our data so we do not skew
-    # our results.
+    cpi_data = CPIData()
+    gb_api = GiantbombAPI(opts.giantbomb_api_key)
 
-    # Generate a plot/bar graph for the adjusted price data.
+    print("Disclaimer: This script used data provided by FRED, Federal"
+          " Reserve Economic Data, from the Federal Reserve Bank of St.Louis"
+          " and Giantbomb.com:\n- {0}\n http://www.giantbomb.com/api/\n".format(CPI_DATA_URL))
 
-    # Generate a CSV file to save for the adjusted price data.
+    if os.path.exists(opts.cpi_file):
+        with open(opts.cpi_file) as fp:
+            cpi_data.load_from_file(fp)
+    else:
+        cpi_data.load_from_url(opts.cpi_data_urls, save_as_file=opts.cpi_file)
+
+    platforms = []
+    counter = 0
+
+    for platform in gb_api.get_platforms(sort='release_data:desc',
+                                         field_list=['release_data',
+                                                     'original_price', 'name',
+                                                     'abbreviation']):
+
+        if not is_valid_dataset(platform):
+            continue
+
+        year = int(platform['release_date'].split('-')[0])
+        price = platform['original_price']
+        adjusted_price = cpi_data.get_adjusted_price(price, year)
+        platform['year'] = year
+        platform['original_price'] = price
+        platform['adjusted_price'] = adjusted_price
+        platforms.append(platform)
+
+        if opts.limit is not None and counter + 1 >= opts.limit:
+            break
+        counter += 1
+
+    if opts.plots_file:
+        generate_plot(platforms, opts.plots_file)
+    if opts.csv_file:
+        generate_csv(platforms, opts.csv_file)
+
+if __name__ == '__main__':
+    main()
